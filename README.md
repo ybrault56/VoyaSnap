@@ -1,8 +1,8 @@
-# Screen Me
+# VoyaSnap
 
 ## Presentation du projet
 
-Screen Me est une application web qui permet a des voyageurs de diffuser un souvenir sur un ecran geant installe dans une rue touristique.
+VoyaSnap est une application web qui permet a des voyageurs de diffuser un souvenir sur un ecran geant installe dans une rue touristique.
 
 Le produit couvre trois usages dans une seule application :
 

@@ -1,0 +1,245 @@
+﻿generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MediaType {
+  image
+  video
+  message
+}
+
+enum OrderStatus {
+  draft
+  quoted
+  checkout_pending
+  paid_pending_moderation
+  approved_scheduled
+  rejected_credit_issued
+  playing
+  completed
+  cancelled
+}
+
+enum PlaySlotStatus {
+  scheduled
+  playing
+  completed
+  cancelled
+}
+
+enum ModerationStatus {
+  approved
+  rejected
+}
+
+enum VoucherStatus {
+  active
+  redeemed
+  expired
+}
+
+enum AdminRole {
+  moderator
+  ops_admin
+}
+
+model Screen {
+  id                    String          @id
+  slug                  String          @unique
+  name                  String
+  locationLabel         String
+  timezone              String
+  currency              String
+  isActive              Boolean         @default(true)
+  playbackBufferSeconds Int
+  fallbackHeadline      String
+  fallbackBody          String
+  deviceToken           String
+  orderItems            OrderItem[]
+  pricingRules          PricingRule[]
+  playSlots             PlaySlot[]
+  deviceSessions        DeviceSession[]
+}
+
+model Submission {
+  id                  String      @id
+  mediaType           MediaType
+  locale              String
+  title               String
+  messageText         String?
+  storageKey          String?
+  originalFileName    String?
+  mimeType            String?
+  fileSizeBytes       Int?
+  width               Int?
+  height              Int?
+  clipDurationSeconds Float?
+  audioWillBeMuted    Boolean     @default(true)
+  scanStatus          String
+  previewUrl          String?
+  createdAt           DateTime
+  updatedAt           DateTime
+  orderItems          OrderItem[]
+  playSlots           PlaySlot[]
+}
+
+model Quote {
+  id                     String   @id
+  screenId               String
+  locale                 String
+  mediaType              MediaType
+  renderDurationSeconds  Int
+  repeatEveryMinutes     Int?
+  requestedWindowStartAt DateTime
+  requestedWindowEndAt   DateTime
+  voucherCode            String?
+  breakdownJson          Json
+  currency               String
+  estimatedFirstPlayAt   DateTime?
+  expiresAt              DateTime
+  createdAt              DateTime
+  orders                 Order[]
+}
+
+model Order {
+  id                     String      @id
+  publicToken            String      @unique
+  locale                 String
+  customerName           String
+  customerEmail          String
+  customerPhone          String
+  status                 OrderStatus
+  quoteId                String
+  paymentMode            String
+  paymentSessionId       String?
+  paymentReference       String?
+  stripeEventId          String?
+  appliedVoucherCode     String?
+  totalCents             Int
+  currency               String
+  requestedWindowStartAt DateTime
+  requestedWindowEndAt   DateTime
+  estimatedFirstPlayAt   DateTime?
+  actualFirstPlayAt      DateTime?
+  paidAt                 DateTime?
+  approvedAt             DateTime?
+  rejectedAt             DateTime?
+  rightsAccepted         Boolean
+  policyAccepted         Boolean
+  createdAt              DateTime
+  updatedAt              DateTime
+  quote                  Quote       @relation(fields: [quoteId], references: [id])
+  items                  OrderItem[]
+  moderationReviews      ModerationReview[]
+  vouchers               CreditVoucher[]
+  notifications          NotificationEvent[]
+}
+
+model OrderItem {
+  id                     String      @id
+  orderId                String
+  submissionId           String
+  screenId               String
+  mediaType              MediaType
+  renderDurationSeconds  Int
+  repeatEveryMinutes     Int?
+  requestedWindowStartAt DateTime
+  requestedWindowEndAt   DateTime
+  quoteBreakdownJson     Json
+  scheduledSlotIds       String[]
+  messageTemplate        String
+  createdAt              DateTime
+  updatedAt              DateTime
+  order                  Order       @relation(fields: [orderId], references: [id])
+  submission             Submission  @relation(fields: [submissionId], references: [id])
+  screen                 Screen      @relation(fields: [screenId], references: [id])
+  playSlots              PlaySlot[]
+  moderationReviews      ModerationReview[]
+  vouchers               CreditVoucher[]
+}
+
+model PlaySlot {
+  id              String         @id
+  screenId        String
+  orderItemId     String
+  submissionId    String
+  startAt         DateTime
+  endAt           DateTime
+  durationSeconds Int
+  status          PlaySlotStatus
+  screen          Screen         @relation(fields: [screenId], references: [id])
+  orderItem       OrderItem      @relation(fields: [orderItemId], references: [id])
+  submission      Submission     @relation(fields: [submissionId], references: [id])
+}
+
+model ModerationReview {
+  id           String           @id
+  orderId      String
+  orderItemId  String
+  status       ModerationStatus
+  reason       String?
+  reviewerRole AdminRole
+  reviewerName String
+  createdAt    DateTime
+  order        Order            @relation(fields: [orderId], references: [id])
+  orderItem    OrderItem        @relation(fields: [orderItemId], references: [id])
+}
+
+model PricingRule {
+  id                 String   @id
+  screenId           String
+  name               String
+  currency           String
+  basePriceJson      Json
+  durationStepSeconds Int
+  durationStepCents  Int
+  repeatPlayCents    Int
+  timeBandsJson      Json
+  occupancyBandsJson Json
+  updatedAt          DateTime
+  screen             Screen   @relation(fields: [screenId], references: [id])
+}
+
+model CreditVoucher {
+  id          String        @id
+  code        String        @unique
+  orderId     String
+  orderItemId String
+  amountCents Int
+  currency    String
+  email       String
+  reason      String
+  status      VoucherStatus
+  expiresAt   DateTime?
+  redeemedAt  DateTime?
+  createdAt   DateTime
+  order       Order         @relation(fields: [orderId], references: [id])
+  orderItem   OrderItem     @relation(fields: [orderItemId], references: [id])
+}
+
+model NotificationEvent {
+  id          String   @id
+  orderId     String
+  kind        String
+  channel     String
+  recipient   String
+  payloadJson Json
+  createdAt   DateTime
+  order       Order    @relation(fields: [orderId], references: [id])
+}
+
+model DeviceSession {
+  id              String   @id
+  screenId        String
+  deviceName      String
+  token           String
+  status          String
+  lastHeartbeatAt DateTime?
+  lastFeedAt      DateTime?
+  screen          Screen   @relation(fields: [screenId], references: [id])
+}

@@ -1,5 +1,6 @@
 import { DEFAULT_SCREEN_ID } from "./constants";
 import { createSignedMediaUrl } from "./media";
+import { getPricingRule } from "./delivery-rules";
 import { buildQuote, redeemVoucher, updatePricingRule } from "./pricing";
 import { recomputeSchedule, deriveSlotStatus } from "./scheduler";
 import type {
@@ -226,8 +227,8 @@ export function createOrder(state: AppState, input: OrderRequest, paymentMode: "
     submissionId,
     screenId: input.screenId,
     mediaType: input.mediaType,
-    renderDurationSeconds: input.renderDurationSeconds,
-    repeatEveryMinutes: input.repeatEveryMinutes,
+    renderDurationSeconds: quote.renderDurationSeconds,
+    repeatEveryMinutes: quote.repeatEveryMinutes,
     requestedWindowStartAt: input.requestedWindowStartAt,
     requestedWindowEndAt: input.requestedWindowEndAt,
     quoteBreakdown: quote.breakdown,
@@ -434,6 +435,12 @@ export function updatePricing(
     messageBaseCents: number;
     durationStepCents: number;
     repeatPlayCents: number;
+    minimumRenderDurationSeconds: number;
+    minimumRepeatMinutes: number;
+    maximumDynamicUpliftPercent: number;
+    promoVideoUrl?: string;
+    promoPosterUrl?: string;
+    timeBands: PricingRule["timeBands"];
   },
   reviewerName: string,
 ) {
@@ -456,6 +463,8 @@ export function buildPlayerFeed(state: AppState, screenId: string, token: string
   if (!screen || !device) {
     return undefined;
   }
+
+  const pricingRule = getPricingRule(state, screenId);
 
   device.lastFeedAt = nowIso();
   device.status = "online";
@@ -497,6 +506,8 @@ export function buildPlayerFeed(state: AppState, screenId: string, token: string
     fallback: {
       headline: screen.fallbackHeadline,
       body: screen.fallbackBody,
+      promoVideoUrl: pricingRule.promoVideoUrl,
+      promoPosterUrl: pricingRule.promoPosterUrl,
     },
     entries,
   };

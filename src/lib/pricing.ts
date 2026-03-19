@@ -1,35 +1,12 @@
-﻿import { DEFAULT_CURRENCY, DEFAULT_SCREEN_ID, DEFAULT_TIME_ZONE } from "./constants";
-import type {
-  AppState,
-  CreditVoucher,
-  PricingRule,
-  Quote,
-  QuoteRequest,
-} from "./types";
-import { estimateOccurrences, findFirstAvailableStart } from "./scheduler";
-import { generateId, getHourInTimeZone, nowIso } from "./utils";
-
-function getPricingRule(state: AppState, screenId = DEFAULT_SCREEN_ID) {
-  return (
-    state.pricingRules.find((rule) => rule.screenId === screenId) ?? state.pricingRules[0]
-  );
-}
-
-function getTimeBandFactor(rule: PricingRule, requestedWindowStartAt: string) {
-  const hour = getHourInTimeZone(requestedWindowStartAt, DEFAULT_TIME_ZONE);
-  return (
-    rule.timeBands.find((candidate) => hour >= candidate.startHour && hour < candidate.endHour) ??
-    rule.timeBands[0]
-  );
-}
-
-function getOccupancyBand(rule: PricingRule, ratio: number) {
-  return (
-    rule.occupancyBands.find(
-      (band) => ratio >= band.minRatio && ratio < band.maxRatio,
-    ) ?? rule.occupancyBands[rule.occupancyBands.length - 1]
-  );
-}
+import { DEFAULT_CURRENCY } from "./constants";
+import {
+  applyPlaybackMinimums,
+  getPricingRule,
+  summarizeTrafficWindow,
+} from "./delivery-rules";
+import type { AppState, CreditVoucher, PricingRule, Quote, QuoteRequest } from "./types";
+import { estimateOccurrences, planRequestedSlots } from "./scheduler";
+import { clamp, generateId, nowIso } from "./utils";
 
 function getActiveVoucher(state: AppState, code: string | undefined) {
   if (!code) {
@@ -48,35 +25,66 @@ export function computeWindowOccupancyRatio(
   requestedWindowStartAt: string,
   requestedWindowEndAt: string,
 ) {
-  const windowStart = new Date(requestedWindowStartAt).getTime();
-  const windowEnd = new Date(requestedWindowEndAt).getTime();
-  const windowDurationMs = Math.max(windowEnd - windowStart, 1);
+  const pricingRule = getPricingRule(state, screenId);
+  const slots = state.playSlots.filter(
+    (slot) => slot.screenId === screenId && slot.status !== "cancelled",
+  );
 
-  const usedMs = state.playSlots
-    .filter((slot) => slot.screenId === screenId && slot.status !== "cancelled")
-    .reduce((total, slot) => {
-      const slotStart = new Date(slot.startAt).getTime();
-      const slotEnd = new Date(slot.endAt).getTime();
-      const overlap = Math.max(0, Math.min(windowEnd, slotEnd) - Math.max(windowStart, slotStart));
-      return total + overlap;
-    }, 0);
+  return summarizeTrafficWindow(
+    pricingRule,
+    slots,
+    requestedWindowStartAt,
+    requestedWindowEndAt,
+  ).sellableOccupancyRatio;
+}
 
-  return Math.min(usedMs / windowDurationMs, 1);
+function computeDynamicUpliftPercent(rule: PricingRule, baseTrafficPercent: number, ratio: number) {
+  const remaining = Math.max(0, rule.maximumDynamicUpliftPercent - baseTrafficPercent);
+  const liveDemandPercent = Math.round(remaining * Math.pow(ratio, 1.35));
+
+  return {
+    liveDemandPercent,
+    dynamicUpliftPercent: clamp(
+      baseTrafficPercent + liveDemandPercent,
+      0,
+      rule.maximumDynamicUpliftPercent,
+    ),
+  };
 }
 
 export function buildQuote(state: AppState, input: QuoteRequest) {
   const pricingRule = getPricingRule(state, input.screenId);
+  const playback = applyPlaybackMinimums(
+    pricingRule,
+    input.renderDurationSeconds,
+    input.repeatEveryMinutes,
+  );
+  const plan = planRequestedSlots(
+    state,
+    input.screenId,
+    input.requestedWindowStartAt,
+    input.requestedWindowEndAt,
+    playback.renderDurationSeconds,
+    playback.repeatEveryMinutes,
+  );
   const occurrences = estimateOccurrences(
     input.requestedWindowStartAt,
     input.requestedWindowEndAt,
-    input.renderDurationSeconds,
-    input.repeatEveryMinutes ?? null,
+    playback.renderDurationSeconds,
+    playback.repeatEveryMinutes,
   );
+
+  if (!plan.canFitAllOccurrences) {
+    throw new Error(
+      "Ce creneau est presque complet. Elargissez la plage ou augmentez l'intervalle de rediffusion.",
+    );
+  }
+
   const basePriceCents = pricingRule.basePriceCents[input.mediaType];
   const durationSteps = Math.max(
     0,
     Math.ceil(
-      (input.renderDurationSeconds - pricingRule.durationStepSeconds) /
+      (playback.renderDurationSeconds - pricingRule.durationStepSeconds) /
         pricingRule.durationStepSeconds,
     ),
   );
@@ -84,36 +92,36 @@ export function buildQuote(state: AppState, input: QuoteRequest) {
   const repeatSurchargeCents = Math.max(0, occurrences - 1) * pricingRule.repeatPlayCents;
   const subtotalBeforeFactors =
     basePriceCents + durationSurchargeCents + repeatSurchargeCents;
-
-  const timeBand = getTimeBandFactor(pricingRule, input.requestedWindowStartAt);
-  const occupancyRatio = computeWindowOccupancyRatio(
-    state,
-    input.screenId,
+  const traffic = summarizeTrafficWindow(
+    pricingRule,
+    state.playSlots.filter(
+      (slot) => slot.screenId === input.screenId && slot.status !== "cancelled",
+    ),
     input.requestedWindowStartAt,
     input.requestedWindowEndAt,
   );
-  const occupancyBand = getOccupancyBand(pricingRule, occupancyRatio);
-  const factorAppliedSubtotal = Math.round(
-    subtotalBeforeFactors * timeBand.factor * occupancyBand.factor,
+  const { liveDemandPercent, dynamicUpliftPercent } = computeDynamicUpliftPercent(
+    pricingRule,
+    traffic.weightedBaseUpliftPercent,
+    traffic.sellableOccupancyRatio,
+  );
+  const subtotalWithDynamicPricing = Math.round(
+    subtotalBeforeFactors * (1 + dynamicUpliftPercent / 100),
   );
   const voucher = getActiveVoucher(state, input.voucherCode);
-  const voucherDiscountCents = Math.min(voucher?.amountCents ?? 0, factorAppliedSubtotal);
-  const totalCents = Math.max(0, factorAppliedSubtotal - voucherDiscountCents);
-  const estimatedFirstPlayAt = findFirstAvailableStart(
-    state,
-    input.screenId,
-    input.requestedWindowStartAt,
-    input.requestedWindowEndAt,
-    input.renderDurationSeconds,
+  const voucherDiscountCents = Math.min(
+    voucher?.amountCents ?? 0,
+    subtotalWithDynamicPricing,
   );
+  const totalCents = Math.max(0, subtotalWithDynamicPricing - voucherDiscountCents);
 
   const quote: Quote = {
     id: generateId("quote"),
     screenId: input.screenId,
     locale: input.locale,
     mediaType: input.mediaType,
-    renderDurationSeconds: input.renderDurationSeconds,
-    repeatEveryMinutes: input.repeatEveryMinutes,
+    renderDurationSeconds: playback.renderDurationSeconds,
+    repeatEveryMinutes: playback.repeatEveryMinutes,
     requestedWindowStartAt: input.requestedWindowStartAt,
     requestedWindowEndAt: input.requestedWindowEndAt,
     voucherCode: voucher?.code,
@@ -121,17 +129,25 @@ export function buildQuote(state: AppState, input: QuoteRequest) {
       basePriceCents,
       durationSurchargeCents,
       repeatSurchargeCents,
-      timeWindowFactor: timeBand.factor,
-      occupancyFactor: occupancyBand.factor,
-      occupancyRatio,
+      timeWindowFactor: Number(
+        (1 + traffic.weightedBaseUpliftPercent / 100).toFixed(2),
+      ),
+      occupancyFactor: Number((1 + liveDemandPercent / 100).toFixed(2)),
+      occupancyRatio: traffic.sellableOccupancyRatio,
+      dynamicUpliftPercent,
+      baseTrafficUpliftPercent: traffic.weightedBaseUpliftPercent,
+      liveDemandUpliftPercent: liveDemandPercent,
+      trafficLabel: traffic.dominantBand.trafficLabel,
+      occupancyLabel: traffic.occupancyBand.label,
+      maxSellableRatio: traffic.weightedMaxSellableRatio,
       voucherDiscountCents,
       estimatedOccurrences: occurrences,
-      subtotalCents: factorAppliedSubtotal,
+      subtotalCents: subtotalWithDynamicPricing,
       totalCents,
-      labels: [timeBand.label, occupancyBand.label],
+      labels: [traffic.dominantBand.label, traffic.occupancyBand.label],
     },
     currency: pricingRule.currency ?? DEFAULT_CURRENCY,
-    estimatedFirstPlayAt,
+    estimatedFirstPlayAt: plan.firstStartAt,
     createdAt: nowIso(),
     expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
   };
@@ -156,6 +172,12 @@ export function updatePricingRule(
     messageBaseCents: number;
     durationStepCents: number;
     repeatPlayCents: number;
+    minimumRenderDurationSeconds: number;
+    minimumRepeatMinutes: number;
+    maximumDynamicUpliftPercent: number;
+    promoVideoUrl?: string;
+    promoPosterUrl?: string;
+    timeBands: PricingRule["timeBands"];
   },
 ) {
   rule.basePriceCents.image = input.imageBaseCents;
@@ -163,5 +185,11 @@ export function updatePricingRule(
   rule.basePriceCents.message = input.messageBaseCents;
   rule.durationStepCents = input.durationStepCents;
   rule.repeatPlayCents = input.repeatPlayCents;
+  rule.minimumRenderDurationSeconds = input.minimumRenderDurationSeconds;
+  rule.minimumRepeatMinutes = input.minimumRepeatMinutes;
+  rule.maximumDynamicUpliftPercent = clamp(input.maximumDynamicUpliftPercent, 0, 25);
+  rule.promoVideoUrl = input.promoVideoUrl?.trim() || undefined;
+  rule.promoPosterUrl = input.promoPosterUrl?.trim() || undefined;
+  rule.timeBands = input.timeBands;
   rule.updatedAt = nowIso();
 }

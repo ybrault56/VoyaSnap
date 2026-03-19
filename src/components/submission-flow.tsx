@@ -1,14 +1,14 @@
 "use client";
 
-import { startTransition, useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   DEFAULT_SCREEN_ID,
   MAX_UPLOAD_BYTES,
   MAX_VIDEO_SECONDS,
 } from "@/lib/constants";
-import type { Locale, MediaType, Quote } from "@/lib/types";
 import type { TravelerDictionary } from "@/lib/dictionaries";
+import type { Locale, MediaType, Quote, TravelerCheckoutSettings } from "@/lib/types";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
 
 type FileMetadata = {
@@ -47,15 +47,60 @@ function toIsoFromLocal(value: string) {
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
-function useFieldLabels(locale: Locale) {
-  const labels: Record<Locale, Record<string, string>> = {
+function localeToFormat(locale: Locale) {
+  switch (locale) {
+    case "en":
+      return "en-US";
+    case "ru":
+      return "ru-RU";
+    case "zh-Hans":
+      return "zh-CN";
+    case "es":
+      return "es-ES";
+    case "fr":
+    default:
+      return "fr-FR";
+  }
+}
+
+function useFieldLabels(locale: Locale, settings: TravelerCheckoutSettings) {
+  const labels: Record<
+    Locale,
+    {
+      mediaType: string;
+      title: string;
+      message: string;
+      upload: string;
+      duration: string;
+      repeat: string;
+      start: string;
+      end: string;
+      customerName: string;
+      email: string;
+      phone: string;
+      voucher: string;
+      rights: string;
+      policy: string;
+      fileHint: string;
+      quoteWaiting: string;
+      traffic: string;
+      demand: string;
+      reserve: string;
+      minRule: string;
+      upliftCap: string;
+      dynamicPrice: string;
+      base: string;
+      durationFee: string;
+      repeatFee: string;
+    }
+  > = {
     fr: {
       mediaType: "Type de contenu",
       title: "Titre public",
       message: "Message",
       upload: "Fichier image ou video",
       duration: "Duree de diffusion (secondes)",
-      repeat: "Rediffusion tous les",
+      repeat: "Rediffusion",
       start: "Debut de la fenetre",
       end: "Fin de la fenetre",
       customerName: "Nom",
@@ -64,7 +109,17 @@ function useFieldLabels(locale: Locale) {
       voucher: "Code promo",
       rights: "Je certifie disposer des droits de diffusion.",
       policy: "J'accepte la charte de moderation et les CGU.",
-      fileHint: "Formats attendus: JPG, PNG, WebP, MP4. Les videos sont diffusees sans audio.",
+      fileHint: "Formats attendus : JPG, PNG, WebP, MP4. Les videos sont diffusees sans audio.",
+      quoteWaiting: "Remplissez le formulaire pour calculer un devis instantane.",
+      traffic: "Trafic actuel",
+      demand: "Variation en direct",
+      reserve: "Reserve auto-promo",
+      minRule: `Diffusion minimum ${settings.minimumRenderDurationSeconds}s. Repetition conseillée a partir de ${settings.minimumRepeatMinutes} min.`,
+      upliftCap: `Hausse plafonnee a +${settings.maximumDynamicUpliftPercent}%`,
+      dynamicPrice: "Tarif dynamique",
+      base: "Base",
+      durationFee: "Duree",
+      repeatFee: "Rediffusion",
     },
     en: {
       mediaType: "Content type",
@@ -72,7 +127,7 @@ function useFieldLabels(locale: Locale) {
       message: "Message",
       upload: "Image or video file",
       duration: "Playback duration (seconds)",
-      repeat: "Repeat every",
+      repeat: "Repeat",
       start: "Window start",
       end: "Window end",
       customerName: "Name",
@@ -82,6 +137,16 @@ function useFieldLabels(locale: Locale) {
       rights: "I confirm I own the rights required for public playback.",
       policy: "I accept the moderation rules and platform terms.",
       fileHint: "Accepted formats: JPG, PNG, WebP, MP4. Videos are played muted.",
+      quoteWaiting: "Fill the form to compute an instant quote.",
+      traffic: "Current traffic",
+      demand: "Live variation",
+      reserve: "Promo reserve",
+      minRule: `Minimum playback ${settings.minimumRenderDurationSeconds}s. Recommended replay from ${settings.minimumRepeatMinutes} min.`,
+      upliftCap: `Dynamic uplift capped at +${settings.maximumDynamicUpliftPercent}%`,
+      dynamicPrice: "Dynamic pricing",
+      base: "Base",
+      durationFee: "Duration",
+      repeatFee: "Repeat",
     },
     ru: {
       mediaType: "Тип контента",
@@ -89,7 +154,7 @@ function useFieldLabels(locale: Locale) {
       message: "Сообщение",
       upload: "Файл изображения или видео",
       duration: "Длительность показа (сек.)",
-      repeat: "Повтор каждые",
+      repeat: "Повтор",
       start: "Начало окна",
       end: "Конец окна",
       customerName: "Имя",
@@ -99,23 +164,43 @@ function useFieldLabels(locale: Locale) {
       rights: "Я подтверждаю наличие прав на публичный показ.",
       policy: "Я принимаю правила модерации и условия сервиса.",
       fileHint: "Поддерживаются JPG, PNG, WebP, MP4. Видео воспроизводится без звука.",
+      quoteWaiting: "Заполните форму, чтобы получить мгновенный расчет.",
+      traffic: "Текущий трафик",
+      demand: "Живая надбавка",
+      reserve: "Резерв под промо",
+      minRule: `Минимальный показ ${settings.minimumRenderDurationSeconds} с. Повтор рекомендуется от ${settings.minimumRepeatMinutes} мин.`,
+      upliftCap: `Рост цены ограничен +${settings.maximumDynamicUpliftPercent}%`,
+      dynamicPrice: "Динамическая цена",
+      base: "База",
+      durationFee: "Длительность",
+      repeatFee: "Повтор",
     },
     "zh-Hans": {
       mediaType: "内容类型",
       title: "公开标题",
-      message: "文字内容",
+      message: "消息内容",
       upload: "图片或视频文件",
       duration: "播放时长（秒）",
-      repeat: "每隔多久重播",
+      repeat: "重复播放",
       start: "开始时间",
       end: "结束时间",
       customerName: "姓名",
       email: "邮箱",
       phone: "电话",
       voucher: "优惠码",
-      rights: "我确认拥有公开展示所需的内容权利。",
+      rights: "我确认拥有公开播放所需的内容权利。",
       policy: "我接受审核规则和平台条款。",
-      fileHint: "支持 JPG、PNG、WebP、MP4。视频将静音播放。",
+      fileHint: "支持 JPG、PNG、WebP、MP4，视频将静音播放。",
+      quoteWaiting: "填写表单后即可获得即时报价。",
+      traffic: "当前流量",
+      demand: "实时浮动",
+      reserve: "自推广预留",
+      minRule: `最短播放 ${settings.minimumRenderDurationSeconds} 秒，建议重复间隔不少于 ${settings.minimumRepeatMinutes} 分钟。`,
+      upliftCap: `价格涨幅最高 +${settings.maximumDynamicUpliftPercent}%`,
+      dynamicPrice: "动态定价",
+      base: "基础价",
+      durationFee: "时长",
+      repeatFee: "重播",
     },
     es: {
       mediaType: "Tipo de contenido",
@@ -123,7 +208,7 @@ function useFieldLabels(locale: Locale) {
       message: "Mensaje",
       upload: "Archivo de imagen o video",
       duration: "Duracion de emision (segundos)",
-      repeat: "Repetir cada",
+      repeat: "Repeticion",
       start: "Inicio de ventana",
       end: "Fin de ventana",
       customerName: "Nombre",
@@ -133,6 +218,16 @@ function useFieldLabels(locale: Locale) {
       rights: "Confirmo que tengo los derechos necesarios para la difusion.",
       policy: "Acepto las reglas de moderacion y las condiciones del servicio.",
       fileHint: "Formatos aceptados: JPG, PNG, WebP, MP4. Los videos se reproducen sin audio.",
+      quoteWaiting: "Completa el formulario para calcular un presupuesto instantaneo.",
+      traffic: "Trafico actual",
+      demand: "Variacion en vivo",
+      reserve: "Reserva auto promo",
+      minRule: `Emision minima ${settings.minimumRenderDurationSeconds}s. Repeticion recomendada a partir de ${settings.minimumRepeatMinutes} min.`,
+      upliftCap: `Subida limitada a +${settings.maximumDynamicUpliftPercent}%`,
+      dynamicPrice: "Tarifa dinamica",
+      base: "Base",
+      durationFee: "Duracion",
+      repeatFee: "Repeticion",
     },
   };
 
@@ -181,18 +276,19 @@ async function inspectFile(file: File): Promise<FileMetadata> {
 export function SubmissionFlow({
   locale,
   dictionary,
+  checkoutSettings,
 }: {
   locale: Locale;
   dictionary: TravelerDictionary;
+  checkoutSettings: TravelerCheckoutSettings;
 }) {
   const router = useRouter();
-  const labels = useFieldLabels(locale);
-  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const labels = useFieldLabels(locale, checkoutSettings);
   const [form, setForm] = useState<FormState>({
     mediaType: "image",
     title: "",
     messageText: "",
-    renderDurationSeconds: 10,
+    renderDurationSeconds: checkoutSettings.minimumRenderDurationSeconds,
     repeatEveryMinutes: "",
     requestedWindowStartAt: toLocalInputValue(defaultStart),
     requestedWindowEndAt: toLocalInputValue(defaultEnd),
@@ -233,9 +329,7 @@ export function SubmissionFlow({
         setQuoteError(null);
         const response = await fetch("/api/quotes", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             locale,
             screenId: DEFAULT_SCREEN_ID,
@@ -283,7 +377,9 @@ export function SubmissionFlow({
     }
 
     if (nextFile.size > MAX_UPLOAD_BYTES) {
-      setFileError(`File is too large. Max allowed size: ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB.`);
+      setFileError(
+        `File is too large. Max allowed size: ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB.`,
+      );
       setSelectedFile(null);
       return;
     }
@@ -305,9 +401,7 @@ export function SubmissionFlow({
   async function uploadFile(file: File) {
     const presignResponse = await fetch("/api/uploads/presign", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         fileName: file.name,
         mimeType: file.type,
@@ -360,9 +454,7 @@ export function SubmissionFlow({
 
       const response = await fetch("/api/orders", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           locale,
           screenId: DEFAULT_SCREEN_ID,
@@ -408,21 +500,117 @@ export function SubmissionFlow({
     }
   }
 
+  const fieldClass = "app-input w-full rounded-2xl px-4 py-3";
+  const sectionLabelClass = "space-y-2 text-sm font-medium text-slate-200";
+  const formatLocale = localeToFormat(locale);
+
   return (
     <form onSubmit={handleSubmit} className="grid gap-6 lg:grid-cols-[1.35fr_0.9fr]">
-      <section className="rounded-[2rem] border border-stone-300 bg-white p-6 shadow-sm sm:p-8">
-        <div className="mb-6 space-y-2">
-          <p className="text-sm font-semibold uppercase text-amber-700">QR checkout</p>
-          <h1 className="max-w-3xl text-balance text-3xl font-semibold text-stone-950 sm:text-4xl">
+      <aside className="order-first space-y-6 lg:order-last lg:sticky lg:top-6 lg:self-start">
+        <section className="rounded-[2rem] app-shell p-6 text-slate-50">
+          <p className="app-kicker text-sm font-semibold uppercase">{dictionary.submit.quoteTitle}</p>
+          <div className="mt-4 space-y-4">
+            {quote ? (
+              <>
+                <div className="rounded-[1.5rem] border border-cyan-400/20 bg-[#07101d] p-4">
+                  <p className="text-sm app-text-muted">{dictionary.submit.total}</p>
+                  <p className="mt-1 text-4xl font-semibold tabular-nums text-slate-50">
+                    {formatCurrency(quote.breakdown.totalCents, quote.currency)}
+                  </p>
+                  <p className="mt-3 text-sm text-cyan-100">
+                    {labels.traffic}: {quote.breakdown.trafficLabel} · {labels.demand}{" "}
+                    +{quote.breakdown.dynamicUpliftPercent}%
+                  </p>
+                </div>
+
+                <dl className="space-y-3 text-sm text-slate-200">
+                  <div className="flex items-center justify-between gap-4">
+                    <dt className="app-text-muted">{dictionary.submit.occurrences}</dt>
+                    <dd className="tabular-nums">{quote.breakdown.estimatedOccurrences}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <dt className="app-text-muted">{dictionary.submit.eta}</dt>
+                    <dd className="text-right tabular-nums">
+                      {formatDateTime(quote.estimatedFirstPlayAt, formatLocale)}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <dt className="app-text-muted">{labels.base}</dt>
+                    <dd className="tabular-nums">{formatCurrency(quote.breakdown.basePriceCents)}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <dt className="app-text-muted">{labels.durationFee}</dt>
+                    <dd className="tabular-nums">
+                      {formatCurrency(quote.breakdown.durationSurchargeCents)}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <dt className="app-text-muted">{labels.repeatFee}</dt>
+                    <dd className="tabular-nums">
+                      {formatCurrency(quote.breakdown.repeatSurchargeCents)}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <dt className="app-text-muted">{labels.dynamicPrice}</dt>
+                    <dd className="tabular-nums">+{quote.breakdown.dynamicUpliftPercent}%</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <dt className="app-text-muted">{labels.reserve}</dt>
+                    <dd className="tabular-nums">
+                      {Math.round((1 - quote.breakdown.maxSellableRatio) * 100)}%
+                    </dd>
+                  </div>
+                </dl>
+
+                <div className="rounded-[1.5rem] app-shell-muted p-4 text-sm app-text-muted">
+                  {quote.breakdown.trafficLabel} / {quote.breakdown.occupancyLabel} · charge vendable{" "}
+                  {(quote.breakdown.occupancyRatio * 100).toFixed(0)}%
+                </div>
+              </>
+            ) : (
+              <div className="rounded-[1.5rem] app-shell-muted p-4 text-sm app-text-muted">
+                {isQuoting ? "Pricing..." : labels.quoteWaiting}
+              </div>
+            )}
+            {quoteError ? <p className="text-sm text-rose-300">{quoteError}</p> : null}
+          </div>
+        </section>
+
+        <section className="rounded-[2rem] app-shell-muted p-6">
+          <p className="app-kicker text-sm font-semibold uppercase">Traffic bands</p>
+          <div className="mt-4 space-y-3">
+            {checkoutSettings.timeBands.map((band) => (
+              <div key={band.label} className="rounded-[1.25rem] border border-white/8 bg-[#07101d] p-4 text-sm">
+                <p className="font-medium text-slate-100">
+                  {band.label} ({band.startHour}h-{band.endHour}h)
+                </p>
+                <p className="mt-2 app-text-muted">
+                  {band.trafficLabel} · +{band.baseUpliftPercent}% max de base · reserve promo{" "}
+                  {Math.round((1 - band.maxSellableRatio) * 100)}%
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      </aside>
+
+      <section className="rounded-[2rem] app-shell p-6 sm:p-8">
+        <div className="mb-6 space-y-3">
+          <p className="app-kicker text-sm font-semibold uppercase">QR checkout</p>
+          <h1 className="max-w-3xl text-balance text-3xl font-semibold text-slate-50 sm:text-4xl">
             {dictionary.submit.title}
           </h1>
-          <p className="max-w-3xl text-pretty text-base text-stone-600">
+          <p className="max-w-3xl text-pretty text-base app-text-muted">
             {dictionary.submit.subtitle}
           </p>
+          <div className="flex flex-wrap gap-2">
+            <span className="app-chip rounded-full px-3 py-2 text-xs">{labels.minRule}</span>
+            <span className="app-chip rounded-full px-3 py-2 text-xs">{labels.upliftCap}</span>
+          </div>
         </div>
 
         <div className="grid gap-5 md:grid-cols-2">
-          <label className="space-y-2 text-sm font-medium text-stone-700 md:col-span-2">
+          <label className={cn(sectionLabelClass, "md:col-span-2")}>
             <span>{labels.mediaType}</span>
             <select
               value={form.mediaType}
@@ -432,7 +620,7 @@ export function SubmissionFlow({
                   mediaType: event.target.value as MediaType,
                 }))
               }
-              className="w-full rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-amber-500"
+              className={fieldClass}
             >
               <option value="image">Image</option>
               <option value="video">Video</option>
@@ -440,19 +628,19 @@ export function SubmissionFlow({
             </select>
           </label>
 
-          <label className="space-y-2 text-sm font-medium text-stone-700 md:col-span-2">
+          <label className={cn(sectionLabelClass, "md:col-span-2")}>
             <span>{labels.title}</span>
             <input
               required
               value={form.title}
               onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-              className="w-full rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-amber-500"
+              className={fieldClass}
               placeholder="Sunset memory"
             />
           </label>
 
           {form.mediaType === "message" ? (
-            <label className="space-y-2 text-sm font-medium text-stone-700 md:col-span-2">
+            <label className={cn(sectionLabelClass, "md:col-span-2")}>
               <span>{labels.message}</span>
               <textarea
                 required
@@ -461,32 +649,31 @@ export function SubmissionFlow({
                 onChange={(event) =>
                   setForm((current) => ({ ...current, messageText: event.target.value }))
                 }
-                className="w-full rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-amber-500"
+                className="app-input w-full rounded-2xl px-4 py-3"
                 placeholder="Wish you were here."
               />
             </label>
           ) : (
-            <label className="space-y-2 text-sm font-medium text-stone-700 md:col-span-2">
+            <label className={cn(sectionLabelClass, "md:col-span-2")}>
               <span>{labels.upload}</span>
               <input
-                ref={uploadInputRef}
                 required
                 type="file"
                 accept={form.mediaType === "video" ? "video/*" : "image/*"}
                 onChange={handleFileChange}
-                className="block w-full rounded-2xl border border-dashed border-stone-400 bg-stone-50 px-4 py-4 text-sm text-stone-700"
+                className="block w-full rounded-2xl border border-dashed border-cyan-400/30 bg-[#07101d] px-4 py-4 text-sm text-slate-200"
               />
-              <p className="text-pretty text-xs text-stone-500">{labels.fileHint}</p>
+              <p className="text-pretty text-xs app-text-muted">{labels.fileHint}</p>
               {selectedFile ? (
-                <p className="text-xs font-medium text-stone-700">
-                  {selectedFile.name} · {Math.round(selectedFile.size / 1024)} KB
+                <p className="text-xs font-medium text-cyan-100">
+                  {selectedFile.name} - {Math.round(selectedFile.size / 1024)} KB
                 </p>
               ) : null}
-              {fileError ? <p className="text-sm text-rose-700">{fileError}</p> : null}
+              {fileError ? <p className="text-sm text-rose-300">{fileError}</p> : null}
             </label>
           )}
 
-          <label className="space-y-2 text-sm font-medium text-stone-700">
+          <label className={sectionLabelClass}>
             <span>{labels.duration}</span>
             <select
               value={form.renderDurationSeconds}
@@ -496,9 +683,9 @@ export function SubmissionFlow({
                   renderDurationSeconds: Number(event.target.value),
                 }))
               }
-              className="w-full rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-amber-500"
+              className={fieldClass}
             >
-              {[5, 10, 15, 20, 30, 45].map((seconds) => (
+              {checkoutSettings.durationOptions.map((seconds) => (
                 <option key={seconds} value={seconds}>
                   {seconds}s
                 </option>
@@ -506,17 +693,17 @@ export function SubmissionFlow({
             </select>
           </label>
 
-          <label className="space-y-2 text-sm font-medium text-stone-700">
+          <label className={sectionLabelClass}>
             <span>{labels.repeat}</span>
             <select
               value={form.repeatEveryMinutes}
               onChange={(event) =>
                 setForm((current) => ({ ...current, repeatEveryMinutes: event.target.value }))
               }
-              className="w-full rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-amber-500"
+              className={fieldClass}
             >
               <option value="">{dictionary.submit.noRepeat}</option>
-              {[10, 15, 30, 60].map((minutes) => (
+              {checkoutSettings.repeatOptions.map((minutes) => (
                 <option key={minutes} value={minutes}>
                   {minutes} min
                 </option>
@@ -524,7 +711,7 @@ export function SubmissionFlow({
             </select>
           </label>
 
-          <label className="space-y-2 text-sm font-medium text-stone-700">
+          <label className={sectionLabelClass}>
             <span>{labels.start}</span>
             <input
               type="datetime-local"
@@ -532,11 +719,11 @@ export function SubmissionFlow({
               onChange={(event) =>
                 setForm((current) => ({ ...current, requestedWindowStartAt: event.target.value }))
               }
-              className="w-full rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-amber-500"
+              className={fieldClass}
             />
           </label>
 
-          <label className="space-y-2 text-sm font-medium text-stone-700">
+          <label className={sectionLabelClass}>
             <span>{labels.end}</span>
             <input
               type="datetime-local"
@@ -544,11 +731,11 @@ export function SubmissionFlow({
               onChange={(event) =>
                 setForm((current) => ({ ...current, requestedWindowEndAt: event.target.value }))
               }
-              className="w-full rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-amber-500"
+              className={fieldClass}
             />
           </label>
 
-          <label className="space-y-2 text-sm font-medium text-stone-700">
+          <label className={sectionLabelClass}>
             <span>{labels.customerName}</span>
             <input
               required
@@ -556,11 +743,11 @@ export function SubmissionFlow({
               onChange={(event) =>
                 setForm((current) => ({ ...current, customerName: event.target.value }))
               }
-              className="w-full rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-amber-500"
+              className={fieldClass}
             />
           </label>
 
-          <label className="space-y-2 text-sm font-medium text-stone-700">
+          <label className={sectionLabelClass}>
             <span>{labels.email}</span>
             <input
               required
@@ -569,11 +756,11 @@ export function SubmissionFlow({
               onChange={(event) =>
                 setForm((current) => ({ ...current, customerEmail: event.target.value }))
               }
-              className="w-full rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-amber-500"
+              className={fieldClass}
             />
           </label>
 
-          <label className="space-y-2 text-sm font-medium text-stone-700">
+          <label className={sectionLabelClass}>
             <span>{labels.phone}</span>
             <input
               required
@@ -581,128 +768,61 @@ export function SubmissionFlow({
               onChange={(event) =>
                 setForm((current) => ({ ...current, customerPhone: event.target.value }))
               }
-              className="w-full rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 outline-none transition focus:border-amber-500"
+              className={fieldClass}
             />
           </label>
 
-          <label className="space-y-2 text-sm font-medium text-stone-700">
+          <label className={sectionLabelClass}>
             <span>{labels.voucher}</span>
             <input
               value={form.voucherCode}
               onChange={(event) =>
                 setForm((current) => ({ ...current, voucherCode: event.target.value.toUpperCase() }))
               }
-              className="w-full rounded-2xl border border-stone-300 bg-stone-50 px-4 py-3 uppercase outline-none transition focus:border-amber-500"
+              className={cn(fieldClass, "uppercase")}
               placeholder={dictionary.submit.voucherPlaceholder}
             />
           </label>
         </div>
 
-        <div className="mt-6 space-y-3 rounded-[1.5rem] border border-stone-200 bg-stone-50 p-5">
-          <label className="flex gap-3 text-sm text-stone-700">
+        <div className="mt-6 space-y-3 rounded-[1.5rem] app-shell-muted p-5">
+          <label className="flex gap-3 text-sm text-slate-200">
             <input
               type="checkbox"
               checked={form.rightsAccepted}
               onChange={(event) =>
                 setForm((current) => ({ ...current, rightsAccepted: event.target.checked }))
               }
-              className="mt-1 size-4 rounded border-stone-400"
+              className="mt-1 size-4 rounded border-cyan-400/40 bg-[#07101d]"
             />
             <span className="text-pretty">{labels.rights}</span>
           </label>
-          <label className="flex gap-3 text-sm text-stone-700">
+          <label className="flex gap-3 text-sm text-slate-200">
             <input
               type="checkbox"
               checked={form.policyAccepted}
               onChange={(event) =>
                 setForm((current) => ({ ...current, policyAccepted: event.target.checked }))
               }
-              className="mt-1 size-4 rounded border-stone-400"
+              className="mt-1 size-4 rounded border-cyan-400/40 bg-[#07101d]"
             />
             <span className="text-pretty">{labels.policy}</span>
           </label>
         </div>
 
-        {submitError ? <p className="mt-4 text-sm text-rose-700">{submitError}</p> : null}
+        {submitError ? <p className="mt-4 text-sm text-rose-300">{submitError}</p> : null}
 
         <button
           type="submit"
           disabled={isSubmitting}
           className={cn(
-            "mt-6 inline-flex items-center justify-center rounded-full bg-amber-500 px-6 py-3 text-sm font-semibold text-stone-950 transition hover:bg-amber-400",
+            "app-button-primary mt-6 inline-flex items-center justify-center rounded-full px-6 py-3 text-sm font-semibold",
             isSubmitting && "cursor-not-allowed opacity-60",
           )}
         >
           {isSubmitting ? "Processing..." : dictionary.submit.payButton}
         </button>
       </section>
-
-      <aside className="space-y-6">
-        <section className="rounded-[2rem] border border-stone-300 bg-stone-950 p-6 text-stone-50 shadow-sm">
-          <p className="text-sm font-semibold uppercase text-amber-300">{dictionary.submit.quoteTitle}</p>
-          <div className="mt-4 space-y-4">
-            {quote ? (
-              <>
-                <div>
-                  <p className="text-sm text-stone-300">{dictionary.submit.total}</p>
-                  <p className="mt-1 text-4xl font-semibold tabular-nums text-white">
-                    {formatCurrency(quote.breakdown.totalCents, quote.currency)}
-                  </p>
-                </div>
-                <dl className="space-y-3 text-sm text-stone-200">
-                  <div className="flex items-center justify-between gap-4">
-                    <dt>{dictionary.submit.occurrences}</dt>
-                    <dd className="tabular-nums">{quote.breakdown.estimatedOccurrences}</dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <dt>{dictionary.submit.eta}</dt>
-                    <dd className="text-right tabular-nums">
-                      {formatDateTime(quote.estimatedFirstPlayAt, locale === "fr" ? "fr-FR" : "en-US")}
-                    </dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <dt>Base</dt>
-                    <dd className="tabular-nums">{formatCurrency(quote.breakdown.basePriceCents)}</dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <dt>Duration</dt>
-                    <dd className="tabular-nums">{formatCurrency(quote.breakdown.durationSurchargeCents)}</dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <dt>Repeat</dt>
-                    <dd className="tabular-nums">{formatCurrency(quote.breakdown.repeatSurchargeCents)}</dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <dt>Window coeff.</dt>
-                    <dd className="tabular-nums">x{quote.breakdown.timeWindowFactor.toFixed(2)}</dd>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <dt>Occupancy coeff.</dt>
-                    <dd className="tabular-nums">x{quote.breakdown.occupancyFactor.toFixed(2)}</dd>
-                  </div>
-                </dl>
-                <p className="text-pretty text-xs text-stone-400">
-                  Labels: {quote.breakdown.labels.join(" / ")} · Occupancy {(quote.breakdown.occupancyRatio * 100).toFixed(0)}%
-                </p>
-              </>
-            ) : (
-              <div className="rounded-[1.5rem] border border-stone-700 bg-stone-900 p-4 text-sm text-stone-300">
-                {isQuoting ? "Pricing..." : "Fill the form to compute an instant quote."}
-              </div>
-            )}
-            {quoteError ? <p className="text-sm text-rose-300">{quoteError}</p> : null}
-          </div>
-        </section>
-
-        <section className="rounded-[2rem] border border-stone-300 bg-white p-6 shadow-sm">
-          <p className="text-sm font-semibold uppercase text-amber-700">Ops notes</p>
-          <ul className="mt-4 space-y-3 text-pretty text-sm text-stone-600">
-            <li>Stripe Checkout is used automatically when environment keys are configured.</li>
-            <li>Without Stripe keys, payment is simulated so the end-to-end flow remains testable.</li>
-            <li>Videos are always played muted on the public screen.</li>
-          </ul>
-        </section>
-      </aside>
     </form>
   );
 }

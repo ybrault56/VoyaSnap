@@ -18,7 +18,7 @@ export async function PUT(
   }
 
   const buffer = Buffer.from(await request.arrayBuffer());
-  await writeUploadedFile(storageKey, buffer);
+  await writeUploadedFile(storageKey, buffer, request.headers.get("content-type") ?? undefined);
 
   return new NextResponse(null, { status: 204 });
 }

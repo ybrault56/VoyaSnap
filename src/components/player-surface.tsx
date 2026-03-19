@@ -27,6 +27,8 @@ type FeedPayload = {
   fallback: {
     headline: string;
     body: string;
+    promoVideoUrl?: string;
+    promoPosterUrl?: string;
   };
   now: string;
   entries: FeedEntry[];
@@ -118,80 +120,106 @@ export function PlayerSurface({
   }, [nextEntry]);
 
   return (
-    <div className="min-h-dvh bg-stone-950 text-stone-50">
-      <div className="flex min-h-dvh flex-col justify-between p-6 sm:p-8">
-        <header className="flex items-start justify-between gap-4 text-sm text-stone-300">
+    <div className="min-h-dvh bg-[#040816] text-slate-100">
+      <div className="flex min-h-dvh flex-col justify-between p-4 sm:p-6">
+        <header className="app-divider flex items-start justify-between gap-4 border-b pb-4 text-sm">
           <div>
-            <p className="font-semibold uppercase text-amber-300">Screen Me player</p>
-            <p className="mt-1 text-pretty text-stone-400">
-              {feed?.screen.name ?? "Main screen"} · {feed?.screen.locationLabel ?? "Tourist street"}
+            <p className="app-kicker text-sm font-semibold uppercase">Screen Me player</p>
+            <p className="mt-1 text-pretty app-text-muted">
+              {feed?.screen.name ?? "Main screen"} - {feed?.screen.locationLabel ?? "Tourist street"}
             </p>
           </div>
-          <div className="rounded-full border border-stone-700 px-4 py-2 tabular-nums text-stone-200">
+          <div className="app-chip rounded-full px-4 py-2 tabular-nums">
             {feed?.device.status ?? "offline"}
           </div>
         </header>
 
-        <main className="grid flex-1 place-items-center py-8">
+        <main className="grid flex-1 place-items-center py-6">
           {activeEntry ? (
-            <div className="flex w-full max-w-6xl flex-col gap-6">
-              <div className="rounded-[2.5rem] border border-stone-800 bg-stone-900 p-4 shadow-2xl shadow-black/30 sm:p-8">
-                {activeEntry.renderType === "message" ? (
-                  <div className="flex min-h-[55dvh] flex-col justify-between rounded-[2rem] border border-amber-400/30 bg-stone-950 p-8 sm:p-12">
-                    <p className="text-sm uppercase tracking-[0.2em] text-amber-300">Postcard</p>
-                    <p className="max-w-4xl text-balance text-4xl font-semibold leading-tight text-white sm:text-6xl">
-                      {activeEntry.title}
-                    </p>
-                    <p className="max-w-4xl text-pretty text-xl leading-relaxed text-stone-200 sm:text-3xl">
-                      {activeEntry.messageText}
-                    </p>
-                  </div>
-                ) : activeEntry.renderType === "video" ? (
-                  <video
-                    key={activeEntry.signedUrl}
-                    src={activeEntry.signedUrl}
-                    className="h-[55dvh] w-full rounded-[2rem] bg-black object-contain"
-                    autoPlay
-                    muted
-                    controls={false}
-                    playsInline
-                  />
-                ) : (
-                  <div className="relative h-[55dvh] w-full overflow-hidden rounded-[2rem] bg-black">
-                    <Image
-                      src={activeEntry.signedUrl ?? ""}
-                      alt={activeEntry.title}
-                      fill
-                      unoptimized
-                      className="object-contain"
+            <div className="flex w-full max-w-[1440px] flex-col gap-4">
+              <div className="app-shell rounded-[2.5rem] p-3 sm:p-5">
+                <div className="app-player-stage mx-auto overflow-hidden rounded-[2rem] bg-black/70">
+                  {activeEntry.renderType === "message" ? (
+                    <div className="flex size-full flex-col justify-between bg-[#07101d] p-6 sm:p-10">
+                      <p className="app-kicker text-sm font-semibold uppercase">Postcard</p>
+                      <p className="max-w-4xl text-balance text-4xl font-semibold leading-tight text-slate-50 sm:text-6xl">
+                        {activeEntry.title}
+                      </p>
+                      <p className="max-w-4xl text-pretty text-xl leading-relaxed text-slate-200 sm:text-3xl">
+                        {activeEntry.messageText}
+                      </p>
+                    </div>
+                  ) : activeEntry.renderType === "video" ? (
+                    <video
+                      key={activeEntry.signedUrl}
+                      src={activeEntry.signedUrl}
+                      className="size-full bg-black object-contain"
+                      autoPlay
+                      muted
+                      controls={false}
+                      playsInline
                     />
-                  </div>
-                )}
+                  ) : (
+                    <div className="relative size-full bg-black">
+                      <Image
+                        src={activeEntry.signedUrl ?? ""}
+                        alt={activeEntry.title}
+                        fill
+                        unoptimized
+                        className="object-contain"
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="flex flex-col gap-2 text-sm text-stone-300 sm:flex-row sm:items-center sm:justify-between">
-                <p className="font-medium text-white">{activeEntry.title}</p>
-                <p className="tabular-nums">
-                  {new Date(activeEntry.startAt).toLocaleTimeString()} → {new Date(activeEntry.endAt).toLocaleTimeString()}
+              <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <p className="font-medium text-slate-100">{activeEntry.title}</p>
+                <p className="tabular-nums app-text-muted">
+                  {new Date(activeEntry.startAt).toLocaleTimeString()} {"->"}{" "}
+                  {new Date(activeEntry.endAt).toLocaleTimeString()}
                 </p>
               </div>
             </div>
           ) : (
-            <div className="max-w-4xl rounded-[2.5rem] border border-stone-800 bg-stone-900 p-8 text-center shadow-2xl shadow-black/30 sm:p-12">
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-amber-300">Fallback</p>
-              <h1 className="mt-6 text-balance text-4xl font-semibold text-white sm:text-6xl">
-                {feed?.fallback.headline ?? "Share your memory"}
-              </h1>
-              <p className="mx-auto mt-6 max-w-3xl text-pretty text-lg text-stone-300 sm:text-2xl">
-                {feed?.fallback.body ?? "Scan the QR code to book your next public memory."}
-              </p>
-              {error ? <p className="mt-6 text-sm text-rose-300">{error}</p> : null}
+            <div className="flex w-full max-w-[1440px] flex-col gap-4">
+              <div className="app-shell rounded-[2.5rem] p-3 sm:p-5">
+                <div className="app-player-stage relative mx-auto overflow-hidden rounded-[2rem] bg-black/80">
+                  {feed?.fallback.promoVideoUrl ? (
+                    <>
+                      <video
+                        key={feed.fallback.promoVideoUrl}
+                        src={feed.fallback.promoVideoUrl}
+                        poster={feed.fallback.promoPosterUrl}
+                        className="size-full object-cover"
+                        autoPlay
+                        muted
+                        loop
+                        playsInline
+                      />
+                      <div className="absolute inset-0 bg-black/45" />
+                    </>
+                  ) : null}
+                  <div className="absolute inset-0 flex flex-col justify-end p-6 sm:p-10">
+                    <p className="app-kicker text-sm font-semibold uppercase">Auto promo</p>
+                    <h1 className="mt-4 max-w-4xl text-balance text-4xl font-semibold text-slate-50 sm:text-6xl">
+                      {feed?.fallback.headline ?? "Share your memory"}
+                    </h1>
+                    <p className="mt-4 max-w-3xl text-pretty text-lg app-text-muted sm:text-2xl">
+                      {feed?.fallback.body ?? "Scan the QR code to book your next public memory."}
+                    </p>
+                    {error ? <p className="mt-6 text-sm text-rose-300">{error}</p> : null}
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </main>
 
-        <footer className="flex flex-col gap-3 border-t border-stone-800 pt-5 text-sm text-stone-400 sm:flex-row sm:items-center sm:justify-between">
-          <p className="tabular-nums">Queue size: {feed?.entries.length ?? 0}</p>
-          <p className="text-pretty">Next: {nextEntry?.title ?? "No scheduled content"}</p>
+        <footer className="app-divider flex flex-col gap-3 border-t pt-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <p className="tabular-nums app-text-muted">Queue size: {feed?.entries.length ?? 0}</p>
+          <p className="text-pretty app-text-muted">
+            Next: {nextEntry?.title ?? "No scheduled content"}
+          </p>
         </footer>
       </div>
     </div>

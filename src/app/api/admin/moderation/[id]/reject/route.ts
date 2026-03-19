@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
+import { requireAdminApiSession } from "@/lib/auth";
 import { mutateState } from "@/lib/store";
-import { rejectOrderItem } from "@/lib/workflow";
 import { rejectModerationSchema } from "@/lib/validation";
+import { rejectOrderItem } from "@/lib/workflow";
 
 export const runtime = "nodejs";
 
@@ -9,11 +10,14 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const auth = await requireAdminApiSession("moderator");
+  if ("error" in auth) {
+    return auth.error;
+  }
+
   const { id } = await params;
   const formData = await request.formData();
   const parsed = rejectModerationSchema.safeParse({
-    reviewerName: formData.get("reviewerName"),
-    actorRole: formData.get("actorRole"),
     reason: formData.get("reason"),
   });
 
@@ -22,13 +26,7 @@ export async function POST(
   }
 
   const result = await mutateState((state) =>
-    rejectOrderItem(
-      state,
-      id,
-      parsed.data.reviewerName,
-      parsed.data.actorRole,
-      parsed.data.reason,
-    ),
+    rejectOrderItem(state, id, auth.session.name, auth.session.role, parsed.data.reason),
   );
 
   if (!result) {

@@ -1,20 +1,43 @@
 import { NextResponse } from "next/server";
+import { requireAdminApiSession } from "@/lib/auth";
 import { mutateState } from "@/lib/store";
-import { updatePricing } from "@/lib/workflow";
 import { pricingUpdateSchema } from "@/lib/validation";
+import { updatePricing } from "@/lib/workflow";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const auth = await requireAdminApiSession("ops_admin");
+  if ("error" in auth) {
+    return auth.error;
+  }
+
   const formData = await request.formData();
+  const timeBandCount = Number(formData.get("timeBandCount") ?? 0);
+  const getString = (key: string) => {
+    const value = formData.get(key);
+    return typeof value === "string" ? value : "";
+  };
   const parsed = pricingUpdateSchema.safeParse({
-    actorRole: formData.get("actorRole"),
-    reviewerName: formData.get("reviewerName"),
     imageBaseCents: Number(formData.get("imageBaseCents")),
     videoBaseCents: Number(formData.get("videoBaseCents")),
     messageBaseCents: Number(formData.get("messageBaseCents")),
     durationStepCents: Number(formData.get("durationStepCents")),
     repeatPlayCents: Number(formData.get("repeatPlayCents")),
+    minimumRenderDurationSeconds: Number(formData.get("minimumRenderDurationSeconds")),
+    minimumRepeatMinutes: Number(formData.get("minimumRepeatMinutes")),
+    maximumDynamicUpliftPercent: Number(formData.get("maximumDynamicUpliftPercent")),
+    promoVideoUrl: getString("promoVideoUrl"),
+    promoPosterUrl: getString("promoPosterUrl"),
+    timeBands: Array.from({ length: timeBandCount }, (_, index) => ({
+      label: getString(`timeBands.${index}.label`),
+      trafficLabel: getString(`timeBands.${index}.trafficLabel`),
+      startHour: Number(formData.get(`timeBands.${index}.startHour`)),
+      endHour: Number(formData.get(`timeBands.${index}.endHour`)),
+      baseUpliftPercent: Number(formData.get(`timeBands.${index}.baseUpliftPercent`)),
+      maxSellableRatio:
+        Number(formData.get(`timeBands.${index}.maxSellablePercent`)) / 100,
+    })),
   });
 
   if (!parsed.success) {
@@ -30,8 +53,17 @@ export async function POST(request: Request) {
         messageBaseCents: parsed.data.messageBaseCents,
         durationStepCents: parsed.data.durationStepCents,
         repeatPlayCents: parsed.data.repeatPlayCents,
+        minimumRenderDurationSeconds: parsed.data.minimumRenderDurationSeconds,
+        minimumRepeatMinutes: parsed.data.minimumRepeatMinutes,
+        maximumDynamicUpliftPercent: parsed.data.maximumDynamicUpliftPercent,
+        promoVideoUrl: parsed.data.promoVideoUrl,
+        promoPosterUrl: parsed.data.promoPosterUrl,
+        timeBands: parsed.data.timeBands.map((band) => ({
+          ...band,
+          factor: 1 + band.baseUpliftPercent / 100,
+        })),
       },
-      parsed.data.reviewerName,
+      auth.session.name,
     ),
   );
 

@@ -1,4 +1,4 @@
-﻿import {
+import {
   DEFAULT_CURRENCY,
   DEFAULT_LOCALE,
   DEFAULT_TIME_ZONE,
@@ -74,6 +74,12 @@ export type QuoteBreakdown = {
   timeWindowFactor: number;
   occupancyFactor: number;
   occupancyRatio: number;
+  dynamicUpliftPercent: number;
+  baseTrafficUpliftPercent: number;
+  liveDemandUpliftPercent: number;
+  trafficLabel: string;
+  occupancyLabel: string;
+  maxSellableRatio: number;
   voucherDiscountCents: number;
   estimatedOccurrences: number;
   subtotalCents: number;
@@ -169,9 +175,12 @@ export type ModerationReview = {
 
 export type PricingTimeBand = {
   label: string;
+  trafficLabel: string;
   startHour: number;
   endHour: number;
   factor: number;
+  baseUpliftPercent: number;
+  maxSellableRatio: number;
 };
 
 export type PricingOccupancyBand = {
@@ -179,6 +188,7 @@ export type PricingOccupancyBand = {
   minRatio: number;
   maxRatio: number;
   factor: number;
+  upliftPercent: number;
 };
 
 export type PricingRule = {
@@ -190,6 +200,11 @@ export type PricingRule = {
   durationStepSeconds: number;
   durationStepCents: number;
   repeatPlayCents: number;
+  minimumRenderDurationSeconds: number;
+  minimumRepeatMinutes: number;
+  maximumDynamicUpliftPercent: number;
+  promoVideoUrl?: string;
+  promoPosterUrl?: string;
   timeBands: PricingTimeBand[];
   occupancyBands: PricingOccupancyBand[];
   updatedAt: string;
@@ -220,6 +235,8 @@ export type NotificationEvent = {
     subject: string;
     body: string;
   };
+  sentAt?: string;
+  deliveryError?: string;
   createdAt: string;
 };
 
@@ -314,3 +331,20 @@ export type OrderSnapshot = {
   displayStatus: OrderStatus;
 };
 
+export type TravelerCheckoutSettings = {
+  minimumRenderDurationSeconds: number;
+  minimumRepeatMinutes: number;
+  maximumDynamicUpliftPercent: number;
+  durationOptions: number[];
+  repeatOptions: number[];
+  promoVideoUrl?: string;
+  promoPosterUrl?: string;
+  timeBands: Array<{
+    label: string;
+    trafficLabel: string;
+    startHour: number;
+    endHour: number;
+    baseUpliftPercent: number;
+    maxSellableRatio: number;
+  }>;
+};

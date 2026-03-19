@@ -1,5 +1,13 @@
-﻿import type { AppState, OrderItem, PlaySlot } from "./types";
+import { applyPlaybackMinimums, getPricingRule, summarizeTrafficWindow } from "./delivery-rules";
+import type { AppState, PlaySlot } from "./types";
 import { addMinutes, generateId } from "./utils";
+
+type PlannedRequest = {
+  firstStartAt?: string;
+  scheduledStarts: string[];
+  requestedOccurrences: number;
+  canFitAllOccurrences: boolean;
+};
 
 export function estimateOccurrences(
   requestedWindowStartAt: string,
@@ -26,57 +34,153 @@ function overlaps(slot: PlaySlot, startMs: number, endMs: number, bufferSeconds:
   return startMs < existingEnd && endMs > existingStart;
 }
 
+function buildRelevantSlots(state: AppState, screenId: string) {
+  return state.playSlots
+    .filter((slot) => slot.screenId === screenId && slot.status !== "cancelled")
+    .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime());
+}
+
+function createOccurrenceTargets(
+  requestedWindowStartAt: string,
+  requestedWindowEndAt: string,
+  renderDurationSeconds: number,
+  repeatEveryMinutes: number | null,
+) {
+  const targets: string[] = [requestedWindowStartAt];
+
+  if (!repeatEveryMinutes) {
+    return targets;
+  }
+
+  const occurrences = estimateOccurrences(
+    requestedWindowStartAt,
+    requestedWindowEndAt,
+    renderDurationSeconds,
+    repeatEveryMinutes,
+  );
+
+  for (let index = 1; index < occurrences; index += 1) {
+    targets.push(addMinutes(requestedWindowStartAt, index * repeatEveryMinutes));
+  }
+
+  return targets;
+}
+
+function canReserveCandidate(
+  state: AppState,
+  screenId: string,
+  slots: PlaySlot[],
+  candidate: PlaySlot,
+  requestedWindowStartAt: string,
+  requestedWindowEndAt: string,
+) {
+  const rule = getPricingRule(state, screenId);
+  const summary = summarizeTrafficWindow(
+    rule,
+    [...slots, candidate],
+    requestedWindowStartAt,
+    requestedWindowEndAt,
+  );
+
+  return summary.groups.every((group) => group.usedMs <= group.sellableMs + 1);
+}
+
+export function planRequestedSlots(
+  state: AppState,
+  screenId: string,
+  requestedWindowStartAt: string,
+  requestedWindowEndAt: string,
+  renderDurationSeconds: number,
+  repeatEveryMinutes: number | null,
+  existingSlots = buildRelevantSlots(state, screenId),
+): PlannedRequest {
+  const rule = getPricingRule(state, screenId);
+  const screen = state.screens.find((candidate) => candidate.id === screenId);
+  const playback = applyPlaybackMinimums(rule, renderDurationSeconds, repeatEveryMinutes);
+  const bufferSeconds = screen?.playbackBufferSeconds ?? 15;
+  const targets = createOccurrenceTargets(
+    requestedWindowStartAt,
+    requestedWindowEndAt,
+    playback.renderDurationSeconds,
+    playback.repeatEveryMinutes,
+  );
+  const plannedSlots = [...existingSlots];
+  const scheduledStarts: string[] = [];
+
+  for (const target of targets) {
+    const windowEndMs = new Date(requestedWindowEndAt).getTime();
+    let cursor = Math.max(
+      new Date(target).getTime(),
+      new Date(requestedWindowStartAt).getTime(),
+    );
+
+    while (cursor + playback.renderDurationSeconds * 1000 <= windowEndMs) {
+      const endMs = cursor + playback.renderDurationSeconds * 1000;
+      const collision = plannedSlots.find((slot) => overlaps(slot, cursor, endMs, bufferSeconds));
+
+      if (collision) {
+        cursor = new Date(collision.endAt).getTime() + bufferSeconds * 1000;
+        continue;
+      }
+
+      const candidate: PlaySlot = {
+        id: generateId("candidate"),
+        screenId,
+        orderItemId: "quote_preview",
+        submissionId: "quote_preview",
+        startAt: new Date(cursor).toISOString(),
+        endAt: new Date(endMs).toISOString(),
+        durationSeconds: playback.renderDurationSeconds,
+        status: "scheduled",
+      };
+
+      if (
+        !canReserveCandidate(
+          state,
+          screenId,
+          plannedSlots,
+          candidate,
+          requestedWindowStartAt,
+          requestedWindowEndAt,
+        )
+      ) {
+        cursor += 60 * 1000;
+        continue;
+      }
+
+      plannedSlots.push(candidate);
+      plannedSlots.sort(
+        (left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime(),
+      );
+      scheduledStarts.push(candidate.startAt);
+      break;
+    }
+  }
+
+  return {
+    firstStartAt: scheduledStarts[0],
+    scheduledStarts,
+    requestedOccurrences: targets.length,
+    canFitAllOccurrences: scheduledStarts.length === targets.length,
+  };
+}
+
 export function findFirstAvailableStart(
   state: AppState,
   screenId: string,
   requestedWindowStartAt: string,
   requestedWindowEndAt: string,
   renderDurationSeconds: number,
+  repeatEveryMinutes: number | null = null,
 ) {
-  const screen = state.screens.find((candidate) => candidate.id === screenId);
-  const bufferSeconds = screen?.playbackBufferSeconds ?? 15;
-  const windowStartMs = new Date(requestedWindowStartAt).getTime();
-  const windowEndMs = new Date(requestedWindowEndAt).getTime();
-  const relevantSlots = state.playSlots
-    .filter((slot) => slot.screenId === screenId && slot.status !== "cancelled")
-    .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime());
-
-  let cursor = windowStartMs;
-
-  while (cursor + renderDurationSeconds * 1000 <= windowEndMs) {
-    const nextEnd = cursor + renderDurationSeconds * 1000;
-    const collision = relevantSlots.find((slot) =>
-      overlaps(slot, cursor, nextEnd, bufferSeconds),
-    );
-
-    if (!collision) {
-      return new Date(cursor).toISOString();
-    }
-
-    cursor = new Date(collision.endAt).getTime() + bufferSeconds * 1000;
-  }
-
-  return undefined;
-}
-
-function createOccurrenceTargets(item: OrderItem) {
-  const targets: string[] = [item.requestedWindowStartAt];
-  if (!item.repeatEveryMinutes) {
-    return targets;
-  }
-
-  const occurrences = estimateOccurrences(
-    item.requestedWindowStartAt,
-    item.requestedWindowEndAt,
-    item.renderDurationSeconds,
-    item.repeatEveryMinutes,
-  );
-
-  for (let index = 1; index < occurrences; index += 1) {
-    targets.push(addMinutes(item.requestedWindowStartAt, index * item.repeatEveryMinutes));
-  }
-
-  return targets;
+  return planRequestedSlots(
+    state,
+    screenId,
+    requestedWindowStartAt,
+    requestedWindowEndAt,
+    renderDurationSeconds,
+    repeatEveryMinutes,
+  ).firstStartAt;
 }
 
 function resetFutureSchedule(state: AppState, screenId: string) {
@@ -100,8 +204,6 @@ function resetFutureSchedule(state: AppState, screenId: string) {
 }
 
 export function recomputeSchedule(state: AppState, screenId: string) {
-  const screen = state.screens.find((candidate) => candidate.id === screenId);
-  const bufferSeconds = screen?.playbackBufferSeconds ?? 15;
   resetFutureSchedule(state, screenId);
 
   const scheduledItems = state.orderItems
@@ -124,49 +226,38 @@ export function recomputeSchedule(state: AppState, screenId: string) {
       return leftApprovedAt - rightApprovedAt;
     });
 
-  const activeSlots = state.playSlots
-    .filter((slot) => slot.screenId === screenId && slot.status !== "cancelled")
-    .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime());
+  const activeSlots = buildRelevantSlots(state, screenId);
 
   for (const entry of scheduledItems) {
-    const targets = createOccurrenceTargets(entry.item);
+    const plan = planRequestedSlots(
+      state,
+      screenId,
+      entry.item.requestedWindowStartAt,
+      entry.item.requestedWindowEndAt,
+      entry.item.renderDurationSeconds,
+      entry.item.repeatEveryMinutes ?? null,
+      activeSlots,
+    );
 
-    for (const target of targets) {
-      const windowEndMs = new Date(entry.item.requestedWindowEndAt).getTime();
-      let cursor = Math.max(
-        new Date(target).getTime(),
-        new Date(entry.item.requestedWindowStartAt).getTime(),
+    for (const startAt of plan.scheduledStarts) {
+      const slot: PlaySlot = {
+        id: generateId("slot"),
+        screenId,
+        orderItemId: entry.item.id,
+        submissionId: entry.item.submissionId,
+        startAt,
+        endAt: new Date(
+          new Date(startAt).getTime() + entry.item.renderDurationSeconds * 1000,
+        ).toISOString(),
+        durationSeconds: entry.item.renderDurationSeconds,
+        status: "scheduled",
+      };
+      activeSlots.push(slot);
+      activeSlots.sort(
+        (left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime(),
       );
-
-      while (cursor + entry.item.renderDurationSeconds * 1000 <= windowEndMs) {
-        const endMs = cursor + entry.item.renderDurationSeconds * 1000;
-        const collision = activeSlots.find((slot) =>
-          overlaps(slot, cursor, endMs, bufferSeconds),
-        );
-
-        if (!collision) {
-          const slot: PlaySlot = {
-            id: generateId("slot"),
-            screenId,
-            orderItemId: entry.item.id,
-            submissionId: entry.item.submissionId,
-            startAt: new Date(cursor).toISOString(),
-            endAt: new Date(endMs).toISOString(),
-            durationSeconds: entry.item.renderDurationSeconds,
-            status: "scheduled",
-          };
-          activeSlots.push(slot);
-          activeSlots.sort(
-            (left, right) =>
-              new Date(left.startAt).getTime() - new Date(right.startAt).getTime(),
-          );
-          state.playSlots.push(slot);
-          entry.item.scheduledSlotIds.push(slot.id);
-          break;
-        }
-
-        cursor = new Date(collision.endAt).getTime() + bufferSeconds * 1000;
-      }
+      state.playSlots.push(slot);
+      entry.item.scheduledSlotIds.push(slot.id);
     }
   }
 }

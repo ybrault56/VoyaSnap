@@ -35,4 +35,43 @@ describe("pricing engine", () => {
     expect(quote.breakdown.voucherDiscountCents).toBe(500);
     expect(quote.breakdown.totalCents).toBeLessThan(quote.breakdown.subtotalCents);
   });
+
+  it("applies playback minimums and caps the live uplift", () => {
+    const state = createSeedState();
+    const rule = state.pricingRules[0];
+
+    rule.timeBands = rule.timeBands.map((band) => ({
+      ...band,
+      baseUpliftPercent: 20,
+      factor: 1.2,
+      maxSellableRatio: 0.4,
+    }));
+
+    for (let index = 0; index < 20; index += 1) {
+      state.playSlots.push({
+        id: `slot_${index}`,
+        screenId: DEFAULT_SCREEN_ID,
+        orderItemId: `item_${index}`,
+        submissionId: `submission_${index}`,
+        startAt: `2026-07-10T17:${String(index).padStart(2, "0")}:00.000Z`,
+        endAt: `2026-07-10T17:${String(index).padStart(2, "0")}:20.000Z`,
+        durationSeconds: 20,
+        status: "scheduled",
+      });
+    }
+
+    const { quote } = buildQuote(state, {
+      locale: "fr",
+      screenId: DEFAULT_SCREEN_ID,
+      mediaType: "image",
+      renderDurationSeconds: 5,
+      repeatEveryMinutes: null,
+      requestedWindowStartAt: "2026-07-10T17:00:00.000Z",
+      requestedWindowEndAt: "2026-07-10T18:00:00.000Z",
+    });
+
+    expect(quote.renderDurationSeconds).toBe(rule.minimumRenderDurationSeconds);
+    expect(quote.breakdown.dynamicUpliftPercent).toBeLessThanOrEqual(25);
+    expect(quote.breakdown.maxSellableRatio).toBeLessThan(1);
+  });
 });

@@ -1,4 +1,4 @@
-﻿import { z } from "zod";
+import { z } from "zod";
 import {
   DEFAULT_SCREEN_ID,
   MAX_FILE_NAME_LENGTH,
@@ -10,6 +10,28 @@ import {
 
 const localeSchema = z.enum(SUPPORTED_LOCALES);
 const mediaTypeSchema = z.enum(["image", "video", "message"]);
+const adminAssetSchema = z
+  .string()
+  .trim()
+  .max(255)
+  .optional()
+  .transform((value) => value || undefined)
+  .refine((value) => {
+    if (!value) {
+      return true;
+    }
+
+    if (value.startsWith("/")) {
+      return true;
+    }
+
+    try {
+      new URL(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }, "Provide an absolute URL or a site-relative path.");
 
 export const quoteRequestSchema = z
   .object({
@@ -60,26 +82,53 @@ export const presignRequestSchema = z.object({
   fileSizeBytes: z.number().int().positive().max(MAX_UPLOAD_BYTES),
 });
 
-export const approveModerationSchema = z.object({
-  reviewerName: z.string().trim().min(2).max(80).default("Equipe moderation"),
-  actorRole: z.enum(["moderator", "ops_admin"]).default("moderator"),
-});
-
-export const rejectModerationSchema = approveModerationSchema.extend({
+export const rejectModerationSchema = z.object({
   reason: z.string().trim().min(5).max(300),
 });
 
 export const pricingUpdateSchema = z.object({
-  actorRole: z.literal("ops_admin"),
-  reviewerName: z.string().trim().min(2).max(80).default("Equipe operations"),
   imageBaseCents: z.number().int().min(0).max(100000),
   videoBaseCents: z.number().int().min(0).max(100000),
   messageBaseCents: z.number().int().min(0).max(100000),
   durationStepCents: z.number().int().min(0).max(10000),
   repeatPlayCents: z.number().int().min(0).max(10000),
+  minimumRenderDurationSeconds: z.number().int().min(5).max(60),
+  minimumRepeatMinutes: z.number().int().min(5).max(180),
+  maximumDynamicUpliftPercent: z.number().int().min(0).max(25),
+  promoVideoUrl: adminAssetSchema,
+  promoPosterUrl: adminAssetSchema,
+  timeBands: z
+    .array(
+      z
+        .object({
+          label: z.string().trim().min(1).max(40),
+          trafficLabel: z.string().trim().min(1).max(40),
+          startHour: z.number().int().min(0).max(23),
+          endHour: z.number().int().min(1).max(24),
+          baseUpliftPercent: z.number().int().min(0).max(25),
+          maxSellableRatio: z.number().min(0.35).max(0.95),
+        })
+        .superRefine((value, ctx) => {
+          if (value.endHour <= value.startHour) {
+            ctx.addIssue({
+              code: "custom",
+              message: "End hour must be greater than start hour.",
+              path: ["endHour"],
+            });
+          }
+        }),
+    )
+    .min(1)
+    .max(8),
 });
 
 export const heartbeatSchema = z.object({
   screenId: z.string().min(1),
   token: z.string().min(1),
+});
+
+export const adminLoginSchema = z.object({
+  email: z.email(),
+  password: z.string().min(1).max(200),
+  redirectTo: z.string().trim().optional(),
 });

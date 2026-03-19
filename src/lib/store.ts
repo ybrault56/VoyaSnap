@@ -1,47 +1,29 @@
-﻿import { mkdir, readFile, writeFile } from "fs/promises";
-import path from "path";
-import type { AppState } from "./types";
-import { createSeedState } from "./seed";
-import { nowIso } from "./utils";
-
-const dataDirectory = path.join(process.cwd(), ".data");
-const storePath = path.join(dataDirectory, "screen-me-store.json");
-
-let mutationQueue: Promise<unknown> = Promise.resolve();
-
-async function ensureStoreFile() {
-  await mkdir(dataDirectory, { recursive: true });
-
-  try {
-    await readFile(storePath, "utf8");
-  } catch {
-    await writeFile(storePath, JSON.stringify(createSeedState(), null, 2), "utf8");
-  }
-}
+import { isDatabaseConfigured } from "./env";
+import { mutateDbState, readDbState, resetDbState } from "./store-db";
+import { mutateFileState, readFileState, resetFileState } from "./store-file";
 
 export async function readState() {
-  await ensureStoreFile();
-  const raw = await readFile(storePath, "utf8");
-  return JSON.parse(raw) as AppState;
+  if (isDatabaseConfigured()) {
+    return readDbState();
+  }
+
+  return readFileState();
 }
 
 export async function mutateState<T>(
-  mutator: (draft: AppState) => Promise<T> | T,
+  mutator: Parameters<typeof mutateFileState<T>>[0],
 ) {
-  const task = mutationQueue.then(async () => {
-    const current = await readState();
-    const draft = structuredClone(current) as AppState;
-    const result = await mutator(draft);
-    draft.updatedAt = nowIso();
-    await writeFile(storePath, JSON.stringify(draft, null, 2), "utf8");
-    return result;
-  });
+  if (isDatabaseConfigured()) {
+    return mutateDbState(mutator);
+  }
 
-  mutationQueue = task.catch(() => undefined);
-  return task;
+  return mutateFileState(mutator);
 }
 
 export async function resetState() {
-  await ensureStoreFile();
-  await writeFile(storePath, JSON.stringify(createSeedState(), null, 2), "utf8");
+  if (isDatabaseConfigured()) {
+    return resetDbState();
+  }
+
+  return resetFileState();
 }

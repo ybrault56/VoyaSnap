@@ -1,4 +1,4 @@
-﻿generator client {
+generator client {
   provider = "prisma-client-js"
 }
 
@@ -107,8 +107,8 @@ model Quote {
 }
 
 model Order {
-  id                     String      @id
-  publicToken            String      @unique
+  id                     String             @id
+  publicToken            String             @unique
   locale                 String
   customerName           String
   customerEmail          String
@@ -133,11 +133,12 @@ model Order {
   policyAccepted         Boolean
   createdAt              DateTime
   updatedAt              DateTime
-  quote                  Quote       @relation(fields: [quoteId], references: [id])
+  quote                  Quote              @relation(fields: [quoteId], references: [id])
   items                  OrderItem[]
   moderationReviews      ModerationReview[]
   vouchers               CreditVoucher[]
   notifications          NotificationEvent[]
+  processedWebhookEvents ProcessedWebhookEvent[]
 }
 
 model OrderItem {
@@ -175,6 +176,8 @@ model PlaySlot {
   screen          Screen         @relation(fields: [screenId], references: [id])
   orderItem       OrderItem      @relation(fields: [orderItemId], references: [id])
   submission      Submission     @relation(fields: [submissionId], references: [id])
+
+  @@index([screenId, startAt])
 }
 
 model ModerationReview {
@@ -191,18 +194,23 @@ model ModerationReview {
 }
 
 model PricingRule {
-  id                 String   @id
-  screenId           String
-  name               String
-  currency           String
-  basePriceJson      Json
+  id                  String   @id
+  screenId            String
+  name                String
+  currency            String
+  basePriceJson       Json
   durationStepSeconds Int
-  durationStepCents  Int
-  repeatPlayCents    Int
-  timeBandsJson      Json
-  occupancyBandsJson Json
-  updatedAt          DateTime
-  screen             Screen   @relation(fields: [screenId], references: [id])
+  durationStepCents   Int
+  repeatPlayCents     Int
+  minimumRenderDurationSeconds Int
+  minimumRepeatMinutes Int
+  maximumDynamicUpliftPercent Int
+  promoVideoUrl       String?
+  promoPosterUrl      String?
+  timeBandsJson       Json
+  occupancyBandsJson  Json
+  updatedAt           DateTime
+  screen              Screen   @relation(fields: [screenId], references: [id])
 }
 
 model CreditVoucher {
@@ -223,14 +231,16 @@ model CreditVoucher {
 }
 
 model NotificationEvent {
-  id          String   @id
-  orderId     String
-  kind        String
-  channel     String
-  recipient   String
-  payloadJson Json
-  createdAt   DateTime
-  order       Order    @relation(fields: [orderId], references: [id])
+  id            String   @id
+  orderId        String
+  kind          String
+  channel       String
+  recipient     String
+  payloadJson   Json
+  sentAt        DateTime?
+  deliveryError String?
+  createdAt     DateTime
+  order         Order    @relation(fields: [orderId], references: [id])
 }
 
 model DeviceSession {
@@ -242,4 +252,27 @@ model DeviceSession {
   lastHeartbeatAt DateTime?
   lastFeedAt      DateTime?
   screen          Screen   @relation(fields: [screenId], references: [id])
+
+  @@index([screenId, token])
+}
+
+model AuditEntry {
+  id         String   @id
+  actorRole  String
+  action     String
+  entityType String
+  entityId   String
+  summary    String
+  createdAt  DateTime
+
+  @@index([createdAt])
+}
+
+model ProcessedWebhookEvent {
+  eventId     String   @id
+  orderId      String?
+  processedAt DateTime
+  order       Order?   @relation(fields: [orderId], references: [id])
+
+  @@index([processedAt])
 }

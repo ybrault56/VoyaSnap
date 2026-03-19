@@ -13,7 +13,7 @@ export async function POST(request: Request) {
   }
 
   const storageKey = createStorageKey(parsed.data.fileName);
-  const signedUpload = createSignedUpload(storageKey);
+  const signedUpload = await createSignedUpload(storageKey, parsed.data.mimeType);
 
   return NextResponse.json({
     storageKey,
